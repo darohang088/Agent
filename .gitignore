@@ -1,6 +1,8 @@
 *.iml
 .gradle
 .kotlin/
+__pycache__/
+*.py[cod]
 .idea/
 /local.properties
 /.idea/caches
