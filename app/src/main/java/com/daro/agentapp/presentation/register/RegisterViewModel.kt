@@ -1,10 +1,9 @@
 package com.daro.agentapp.presentation.register
 
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import androidx.lifecycle.viewModelScope
-import androidx.lifecycle.viewmodel.initializer
-import androidx.lifecycle.viewmodel.viewModelFactory
 import com.daro.agentapp.core.common.AppResult
 import com.daro.agentapp.domain.model.RegisterRequest
 import com.daro.agentapp.domain.repository.AuthRepository
@@ -15,7 +14,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-class RegisterViewModel(private val repository: AuthRepository) : ViewModel() {
+@HiltViewModel
+class RegisterViewModel @Inject constructor(private val repository: AuthRepository) : ViewModel() {
     private val mutableState = MutableStateFlow(RegisterUiState())
     val uiState = mutableState.asStateFlow()
 
@@ -87,9 +87,4 @@ class RegisterViewModel(private val repository: AuthRepository) : ViewModel() {
         if (form.locationName.isBlank()) add(RegisterField.LocationName)
     }
 
-    companion object {
-        fun factory(repository: AuthRepository): ViewModelProvider.Factory = viewModelFactory {
-            initializer { RegisterViewModel(repository) }
-        }
-    }
 }

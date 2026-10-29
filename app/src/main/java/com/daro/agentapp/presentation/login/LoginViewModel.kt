@@ -1,10 +1,9 @@
 package com.daro.agentapp.presentation.login
 
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import androidx.lifecycle.viewModelScope
-import androidx.lifecycle.viewmodel.initializer
-import androidx.lifecycle.viewmodel.viewModelFactory
 import com.daro.agentapp.core.common.AppResult
 import com.daro.agentapp.domain.model.LoginRequest
 import com.daro.agentapp.domain.repository.AuthRepository
@@ -14,7 +13,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-class LoginViewModel(
+@HiltViewModel
+class LoginViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val sessionRepository: SessionRepository,
 ) : ViewModel() {
@@ -56,8 +56,4 @@ class LoginViewModel(
         }
     }
 
-    companion object {
-        fun factory(authRepository: AuthRepository, sessionRepository: SessionRepository): ViewModelProvider.Factory =
-            viewModelFactory { initializer { LoginViewModel(authRepository, sessionRepository) } }
-    }
 }

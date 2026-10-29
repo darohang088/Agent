@@ -7,7 +7,7 @@ import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 
-/** Create once in AppContainer; feature services share configuration and connection pools. */
+/** Provided once by the Hilt application graph; feature services share configuration and connection pools. */
 internal object RetrofitProvider {
     private val json = Json { ignoreUnknownKeys = true }
 

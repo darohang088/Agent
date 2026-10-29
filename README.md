@@ -9,7 +9,7 @@ Android app foundation built with Kotlin, Jetpack Compose, MVVM, Retrofit, and a
 | UI | Jetpack Compose and Material 3 |
 | State | ViewModel, coroutines, StateFlow |
 | Networking | Retrofit 2.11, OkHttp 4.12, Kotlin serialization |
-| Dependency wiring | Manual application-scoped `AppContainer` |
+| Dependency wiring | Dagger-Hilt application graph and constructor-injected ViewModels |
 | Session storage | AES-GCM encrypted file with a key in Android Keystore |
 | Minimum Android | Android 6.0 / API 23 |
 | Compile / target SDK | API 37 |
@@ -46,13 +46,13 @@ flowchart TD
 
 ![App startup, dependency wiring, and navigation](app/document/images/app-startup-overview.png)
 
-Session restoration runs in the repository, but automatic routing after restoration/expiry and a logout action are deferred. The diagram's encrypted-preferences utility is separate from the current session store, which uses an encrypted file backed by Android Keystore.
+The startup image shows the earlier manual `AppContainer`; current dependency wiring uses Hilt modules and `@HiltViewModel` constructor injection. See [dependency injection](app/document/dependency-injection.md). Session restoration runs in the repository, but automatic routing after restoration/expiry and a logout action are deferred. The diagram's encrypted-preferences utility is separate from the current session store, which uses an encrypted file backed by Android Keystore.
 
 ### Data-layer process
 
 ![Authentication requests, response mapping, and secure session storage](app/document/images/data-layer-process.png)
 
-The diagram predates removal of the temporary login-result JSON log. Current debug network logging is redacted; there is no raw login-result log. Home navigation follows the login ViewModel's success state after session persistence; navigation does not yet observe the global session StateFlow.
+The data-layer diagram shows the earlier `AppContainer`; Hilt now wires the same dependencies. It also predates removal of the temporary login-result JSON log. Current debug network logging is redacted; there is no raw login-result log. Home navigation follows the login ViewModel's success state after session persistence; navigation does not yet observe the global session StateFlow.
 
 ### Why use a data layer?
 
@@ -73,7 +73,8 @@ app/
     │   ├── java/com/daro/agentapp/
     │   │   ├── AgentApplication.kt
     │   │   ├── MainActivity.kt
-    │   │   ├── app/                  # AppContainer
+    │   │   ├── app/                  # App composable shell
+    │   │   ├── di/                   # Hilt providers, scopes, multibindings
     │   │   ├── base/                 # Shared repository transport handling
     │   │   ├── core/                 # Results, configuration, network utilities
     │   │   ├── domain/               # Models and repository contracts
@@ -232,7 +233,7 @@ The APK filename may have an `-unsigned` suffix when signing properties are abse
 
 1. Define the domain model and repository contract needed by the feature.
 2. Add typed Retrofit endpoints and DTOs, then map them in a data repository implementation. Reuse the shared client and `BaseRepo` transport handling.
-3. Wire the implementation in `AppContainer`.
+3. Bind/provide the implementation in a Hilt module under `di/`; inject its interface into the ViewModel.
 4. Add screen state, a ViewModel, Compose UI, and a destination/graph entry. Keep API DTOs out of screen logic.
 5. Add English and Khmer strings, and place shared images in `main/res/drawable`.
 6. Verify error, loading, success, and relevant session behavior with focused tests.
@@ -253,6 +254,8 @@ The script updates the namespace, base application ID, package references, and s
 ## More documentation
 
 - [Implementation notes](app/document/implement.md)
+- [Hilt dependency injection](app/document/dependency-injection.md)
+- [Step-by-step Hilt and feature-flow lessons](app/document/hilt-step-by-step.md)
 - [Workflow diagrams](app/document/workflow.md)
 - [Release validation and acceptance gaps](app/document/release-validation.md)
 - [Package rename guide](app/document/change-package-name.md)

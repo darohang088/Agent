@@ -9,11 +9,10 @@ import com.daro.agentapp.navigation.AppNavHost
 import com.daro.agentapp.ui.theme.AgentAppTheme
 
 @Composable
-fun AgentApp(container: AppContainer) {
+fun AgentApp() {
     AgentAppTheme {
         Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
             AppNavHost(
-                container = container,
                 modifier = Modifier.padding(innerPadding),
             )
         }

@@ -12,7 +12,7 @@
 
 The PNG images display without Mermaid support. The Mermaid diagram sources remain below for reference.
 
-These diagrams describe the current implementation. The application uses Kotlin, Jetpack Compose, MVVM, manual dependency injection, Retrofit, and OkHttp.
+These diagrams describe the current implementation. The application uses Kotlin, Jetpack Compose, MVVM, Hilt dependency injection, Retrofit, and OkHttp. Earlier images and source snippets referencing `AppContainer` show the pre-Hilt composition root; see [current Hilt wiring](dependency-injection.md).
 
 ## Project structure
 

@@ -5,18 +5,16 @@ import androidx.compose.ui.Modifier
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.daro.agentapp.app.AppContainer
 import com.daro.agentapp.presentation.greeting.GreetingRoute
 import com.daro.agentapp.presentation.login.LoginRoute
 import com.daro.agentapp.presentation.register.RegisterRoute
 
 @Composable
-fun AppNavHost(container: AppContainer, modifier: Modifier = Modifier) {
+fun AppNavHost(modifier: Modifier = Modifier) {
     val navController = rememberNavController()
     NavHost(navController, startDestination = Destination.Welcome.route, modifier = modifier) {
         composable(Destination.Welcome.route) {
             GreetingRoute(
-                factory = container.greetingViewModelFactory,
                 onHome = {
                     navController.navigate(Destination.Home.route) { launchSingleTop = true }
                 },
@@ -31,7 +29,6 @@ fun AppNavHost(container: AppContainer, modifier: Modifier = Modifier) {
         homeGraph(navController)
         composable(Destination.Login.route) {
             LoginRoute(
-                factory = container.loginViewModelFactory,
                 onBack = { navController.popBackStack() },
                 onSignedIn = {
                     navController.navigate(Destination.Home.route) {
@@ -43,7 +40,6 @@ fun AppNavHost(container: AppContainer, modifier: Modifier = Modifier) {
         }
         composable(Destination.Register.route) {
             RegisterRoute(
-                factory = container.registerViewModelFactory,
                 onBack = { navController.popBackStack() },
             )
         }
