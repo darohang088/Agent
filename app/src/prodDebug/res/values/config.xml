@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <!-- Development endpoint for local prodDebug testing only. Never packaged into prodRelease. -->
-    <string name="api_base_url" translatable="false">http://43.224.34.135:3003/</string>
-</resources>

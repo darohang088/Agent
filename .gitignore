@@ -17,3 +17,8 @@ __pycache__/
 .externalNativeBuild
 .cxx
 local.properties
+
+# Local app signing keys and credentials
+/app/keys/
+*.jks
+*.keystore

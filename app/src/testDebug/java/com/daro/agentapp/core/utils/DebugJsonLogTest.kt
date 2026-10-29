@@ -2,6 +2,7 @@ package com.daro.agentapp.core.utils
 
 import com.daro.agentapp.domain.model.AuthSession
 import com.daro.agentapp.domain.model.AuthUser
+import com.daro.agentapp.utils.toPrettyJson
 import org.junit.Assert.*
 import org.junit.Test
 

@@ -292,7 +292,7 @@ app/src/
 └── androidTest/                     # Shared instrumentation tests
 ```
 
-Each flavor defines `R.string.api_base_url`, currently `http://43.224.34.135:3003/` for all four environments because only one URL was supplied. Edit each environment's `config.xml` independently when separate servers are available. Android selects the resource for the active build variant; no runtime environment switch is needed.
+Each flavor defines `BuildConfig.API_BASE_URL` in `app/build.gradle.kts`. Production uses HTTPS; staging, UAT, and preProd use the supplied HTTP development server. The debug build type overrides the URL to HTTP for every flavor. Release HTTPS validation remains enforced. No runtime environment switch is needed.
 
 The registration implementation in section 16 consumes this configuration, adds Internet permission, and permits HTTP for the supplied server. HTTPS is still needed for encrypted transport.
 
@@ -330,7 +330,7 @@ The utility checks known su/Magisk paths without executing `su`, requesting priv
 
 ## 16. Registration endpoint
 
-Implemented `POST /api/v1/auth/register` with the supplied JSON request and success envelope. The initial direct OkHttp implementation was migrated to Retrofit in section 22. `AppContainer.authRepository` exposes `AuthRepository.register(RegisterRequest): AppResult<AuthSession>` to feature ViewModels. The application reads the active flavor's `api_base_url` resource when constructing the container.
+Implemented `POST /api/v1/auth/register` with the supplied JSON request and success envelope. The initial direct OkHttp implementation was migrated to Retrofit in section 22. `AppContainer.authRepository` exposes `AuthRepository.register(RegisterRequest): AppResult<AuthSession>` to feature ViewModels. The application reads `BuildConfig.API_BASE_URL` when constructing the container.
 
 ### Data flow
 
@@ -540,7 +540,7 @@ The requested security-crypto 1.0.0 dependency remains for the existing device-p
 
 `EnvironmentConfig` requires a known flavor, explicit base URL, no URL credentials/query/fragment, and a trailing slash. Every release requires HTTPS. Unknown/missing/invalid configuration returns AppError.Configuration through an unconfigured repository; it never falls back to production or the development server.
 
-Production is configured to the URL supplied during this implementation: `https://43.224.34.135:3003/`. Production Debug explicitly retains the development HTTP address in `src/prodDebug/res/values/config.xml`; this override is not packaged in Production Release. The other debug flavors retain their existing development URL. Their release configuration must also be changed to valid HTTPS before making API calls.
+Production is configured to the URL supplied during this implementation: `https://43.224.34.135:3003/`. Production Debug explicitly retains the development HTTP address through the debug build type in `app/build.gradle.kts`; this override is not packaged in Production Release. The other debug flavors retain their existing development URL. Their release configuration must also be changed to valid HTTPS before making API calls.
 
 Main/release manifests and network security configuration deny cleartext. Debug source-set overrides allow only the supplied development host, and the shared OkHttp client enforces the debug-only exception on API 23 as well. No permissive TLS verifier, trust-all certificate manager, or HTTP fallback was added.
 
@@ -627,3 +627,28 @@ Filter Logcat with `tag:ResponseData` to inspect this record. This is an explici
 DebugJsonLog's debug implementation formats and emits the JSON. The release implementation is an inline no-op and does not evaluate the formatting lambda. Use this helper rather than an unconditional Log.d call to preserve the debug-only boundary across all flavors. Formatting and sink errors do not change the login outcome. Tests use synthetic values only; no real token values were read from the device or backend.
 
 Pretty-JSON verification passed: all four debug builds, 72 unit tests per debug flavor (288 executions), and production optimized release/vital lint. Release APK inspection confirmed both AgentNetwork and ResponseData==> log tags are absent. No real response values were fetched or printed during these checks.
+
+
+## Build configuration API URLs
+
+API URLs now live in flavor `buildConfigField("String", "API_BASE_URL", ...)` declarations in `app/build.gradle.kts`, replacing the earlier `values/config.xml` files shown in historical structure examples above. `AgentApplication` reads `BuildConfig.API_BASE_URL`. The debug build type overrides every flavor to the HTTP development server; production release retains HTTPS. Android generates `BuildConfig.DEBUG` automatically. Environment resource folders remain available for images and other resources.
+
+## Whole-app release R8 protection
+
+Release optimization now has no `packageScope` restriction. AGP 9.4 applies R8 code optimization, shrinking, obfuscation, and resource optimization across the app, subject to Android and dependency keep rules. Debug builds retain their normal configuration.
+
+Custom release rules are loaded from `app/src/release/keepRules/app-rules.keep`. The initial file contains guidance only: the optimized build succeeded using the existing Android defaults and dependency consumer rules, without broad app/DTO keep rules or warning suppression.
+
+`scripts/verify_release_apk.py --mapping <mapping.txt>` verifies that application classes have renamed entries, in addition to checking the release manifest and absence of debug log tags. CI now supplies the production mapping file. Retain the mapping file for each distributed release privately for crash retracing; do not bundle it in the APK. Obfuscation raises reverse-engineering effort; it does not encrypt app logic or hide embedded secrets.
+
+Validation: production release build and vital lint succeeded; 72 production-debug JVM tests passed; 112 application class mapping entries were renamed. The artifact audit confirmed non-debuggable mode, disabled cleartext, and absent network/raw-response debug tags. A temporary copy of the optimized APK was re-signed with the emulator's existing standard debug certificate to avoid deleting existing app data; its release code and configuration were unchanged. Emulator smoke checks covered startup, login navigation, empty-login validation, and registration navigation. This does not establish successful production authentication, token persistence after a real login, or TLS server availability; those remain release acceptance checks against a working backend.
+
+
+## Remove temporary raw authentication logging
+
+The login ViewModel no longer emits the temporary unredacted `ResponseData==>` success log; unused `DebugJsonLog` and `toPrettyJson` imports were removed. Registration also has no manual response log. The debug-only `AgentNetwork` logger remains enabled with its existing allowlist-based body/header redaction. Generic JSON formatting helpers are retained, but formatting is not sanitization: never pass credentials to manual logs or analytics. Historical sections showing the temporary log describe earlier implementation stages.
+
+
+## Release lifecycle validation
+
+Added real-Keystore session lifecycle instrumentation tests and an isolated release-validation helper (`scripts/validate_release_sessions.py`). All six data-layer device tests passed on API 35 with synthetic credentials. The helper uses a separate application ID and test-only keep boundaries, leaving distribution R8 rules and normal app data unchanged, and rejects zero/incomplete test runs. `scripts/check_production_https.py` adds repeatable certificate-verified TLS probing. Production TLS currently fails with `WRONG_VERSION_NUMBER`; live authentication acceptance remains blocked. Current navigation does not yet observe restored/expired session state or expose logout. See `release-validation.md` for the exact scope and outstanding UI/backend acceptance checks.

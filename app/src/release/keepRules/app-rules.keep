@@ -1,0 +1,5 @@
+# AGP 9.4 automatically loads release keepRules/*.keep.
+# Android default rules and dependency consumer rules remain enabled.
+# Retrofit and Kotlin serialization supply their own consumer rules.
+# Add only narrowly targeted rules if a verified reflection/JNI use requires them.
+# Do not keep the entire app package or disable obfuscation/shrinking.

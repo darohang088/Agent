@@ -1,5 +1,7 @@
 package com.daro.agentapp.data.local.session
 
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import org.junit.runner.RunWith
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
 import java.util.UUID
@@ -7,6 +9,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
 
+@RunWith(AndroidJUnit4::class)
 class KeystoreSessionStoreTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
 

@@ -1,0 +1,12 @@
+# Error Prone annotations in Android test dependencies refer to this compile-time
+# JDK enum. It is not an Android runtime dependency. Applies to the test APK only.
+-dontwarn javax.lang.model.element.Modifier
+
+# InstrumentationRunner selects these two validation classes by their source names.
+# Keep test discovery names only; these rules are never included in the app APK.
+-keep class com.daro.agentapp.data.repository.SessionLifecycleIntegrationTest { *; }
+-keep class com.daro.agentapp.data.local.session.KeystoreSessionStoreTest { *; }
+
+# JUnit discovers test methods and runners through runtime annotations/reflection.
+-keepattributes *Annotation*
+-keep class org.junit.** { *; }

@@ -6,8 +6,6 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.daro.agentapp.core.common.AppResult
-import com.daro.agentapp.core.utils.DebugJsonLog
-import com.daro.agentapp.core.utils.toPrettyJson
 import com.daro.agentapp.domain.model.LoginRequest
 import com.daro.agentapp.domain.repository.AuthRepository
 import com.daro.agentapp.domain.session.SessionRepository

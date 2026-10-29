@@ -2,6 +2,7 @@ package com.daro.agentapp.core.utils
 
 import com.daro.agentapp.domain.model.AuthSession
 import com.daro.agentapp.domain.model.AuthUser
+import com.daro.agentapp.utils.toPrettyJson
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject

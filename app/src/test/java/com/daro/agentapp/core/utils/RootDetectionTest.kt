@@ -1,5 +1,6 @@
 package com.daro.agentapp.core.utils
 
+import com.daro.agentapp.utils.RootDetection
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

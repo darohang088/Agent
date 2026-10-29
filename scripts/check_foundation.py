@@ -2,6 +2,7 @@
 """Repository policy checks; not a replacement for a security audit."""
 from pathlib import Path
 import sys
+import re
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,13 +17,22 @@ def require(condition, message):
 
 manifest = ET.parse(ROOT / 'app/src/main/AndroidManifest.xml').getroot()
 application = manifest.find('application')
-require(application.get(ANDROID + 'usesCleartextTraffic') == 'false', 'Main manifest must forbid cleartext')
+require(application.get(ANDROID + 'usesCleartextTraffic') == '${allowCleartextTraffic}',
+        'Main manifest must use the build-controlled cleartext placeholder')
 network = ET.parse(ROOT / 'app/src/main/res/xml/network_security_config.xml').getroot()
 require(all(item.get('cleartextTrafficPermitted') != 'true' for item in network.iter()),
         'Release network configuration must not permit cleartext')
-prod = ET.parse(ROOT / 'app/src/prod/res/values/config.xml').getroot()
-url = next((item.text or '' for item in prod.findall('string') if item.get('name') == 'api_base_url'), '')
-require(url.startswith('https://') and url.endswith('/'), 'Production must explicitly configure an HTTPS base URL')
+gradle = (ROOT / 'app/build.gradle.kts').read_text()
+require('manifestPlaceholders["allowCleartextTraffic"] = "false"' in gradle,
+        'Default manifest cleartext value must be false')
+release_block = re.search(r'release\s*\{(.*?)optimization', gradle, re.S)
+require(release_block is not None and 'allowCleartextTraffic' not in release_block.group(1),
+        'Release must retain the default cleartext restriction')
+require('packageScope' not in gradle, 'Release R8 must cover the whole application')
+require('enable = true' in gradle, 'Release R8 must be enabled')
+prod = re.search(r'create\("prod"\)\s*\{([^}]+)\}', gradle)
+require(prod is not None and 'buildConfigField("String", "API_BASE_URL", "\\"https://' in prod.group(1),
+        'Production must explicitly configure an HTTPS BuildConfig API URL')
 for filename, sections in [('backup_rules.xml', ['.']),
                            ('data_extraction_rules.xml', ['cloud-backup', 'device-transfer'])]:
     root = ET.parse(ROOT / 'app/src/main/res/xml' / filename).getroot()

@@ -64,7 +64,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
       - run: sdkmanager 'platforms;android-37'
       - run: ./gradlew :app:assembleProdRelease
-      - run: python3 scripts/verify_release_apk.py app/build/outputs/apk/prod/release/app-prod-release-unsigned.apk
+      - run: python3 scripts/verify_release_apk.py app/build/outputs/apk/prod/release/app-prod-release-unsigned.apk --mapping app/build/outputs/mapping/prodRelease/mapping.txt
 
   device-tests:
     runs-on: ubuntu-latest
