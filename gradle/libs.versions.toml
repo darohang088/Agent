@@ -2,7 +2,7 @@
 hilt = "2.60.1"
 ksp = "2.3.10"
 retrofit = "2.11.0"
-androidx-security-crypto = "1.0.0"
+androidx-security-crypto = "1.1.0"
 agp = "9.4.1"
 coreKtx = "1.19.1"
 junit = "4.13.2"
