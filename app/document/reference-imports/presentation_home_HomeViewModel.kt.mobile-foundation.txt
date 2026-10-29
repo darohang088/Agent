@@ -1,0 +1,6 @@
+package com.daro.agentapp.presentation.home
+
+import com.daro.agentapp.base.BaseViewModel
+
+/** Home is currently a static menu; banking operations require real feature contracts. */
+class HomeViewModel : BaseViewModel()

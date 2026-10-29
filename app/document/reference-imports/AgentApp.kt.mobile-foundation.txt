@@ -1,0 +1,5 @@
+package com.daro.agentapp
+
+/** Compatibility name for imported code. The manifest continues to use AgentApplication. */
+@Deprecated("Use AgentApplication")
+class AgentApp : AgentApplication()

@@ -1,0 +1,6 @@
+package com.daro.agentapp.base
+
+import androidx.lifecycle.ViewModel
+
+/** Optional shared parent. Subclasses use viewModelScope and constructor-injected repositories. */
+abstract class BaseViewModel : ViewModel()

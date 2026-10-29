@@ -1,0 +1,41 @@
+package com.daro.agentapp.core.utils
+
+import android.content.Context
+import android.content.SharedPreferences
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKeys
+
+
+/**
+ * BizEncryptedSharedPreferences
+ */
+object EncryptedSharedPreferences {
+    private var sharedPreferences: SharedPreferences? = null
+    fun getInstance(): SharedPreferences {
+        if (sharedPreferences == null) {
+            throw NoSuchFieldException("BizEncryptedPreferences must be initialize in Application class.")
+        }
+        return sharedPreferences!!
+    }
+
+    /**
+     * Is initialize
+     */
+    fun isInit(): Boolean {
+        return sharedPreferences != null
+    }
+
+    /**
+     * Must be init one in Application class
+     */
+    fun init(context: Context) {
+        val masterKey = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
+        sharedPreferences = EncryptedSharedPreferences.create(
+            "biz_shared_prefs",
+            masterKey,
+            context,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        )
+    }
+}

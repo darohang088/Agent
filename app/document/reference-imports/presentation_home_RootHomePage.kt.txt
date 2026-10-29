@@ -1,0 +1,176 @@
+package com.daro.agentapp.presentation.home
+
+import android.annotation.SuppressLint
+import android.graphics.RectF
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.livedata.observeAsState
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.zIndex
+import androidx.lifecycle.viewmodel.compose.viewModel
+import kh.com.princebank.biz.R
+import kh.com.princebank.biz.components.BizUiWrapper
+import kh.com.princebank.biz.components.common.BizHomeBottomBar
+import kh.com.princebank.biz.data.BizUserManager
+import kh.com.princebank.biz.features.exchangeRate.BizExchangeRatePage
+import kh.com.princebank.biz.features.locator.BizLocatorPage
+import kh.com.princebank.biz.features.mores.BizMorePage
+import kh.com.princebank.biz.utils.ScreenLock
+import kh.com.princebank.biz.utils.viewModel
+import kotlinx.coroutines.launch
+
+@Preview(showBackground = true, widthDp = 360, heightDp = 640)
+@Composable
+fun BizRootHomePagePreview() {
+    BizRootHomePage(
+        toTransfer = { },
+        toNotification = { },
+        toAccount = { },
+        toApproval = { },
+        toCreation = { },
+        toLoan = { },
+        toDeposit = { },
+        toRoles = { },
+        toSecurityCenter = {},
+        toDeviceManagement = {},
+        toAboutUs = {},
+        toScan = {},
+        toBizWebConfirmPin = {}
+    )
+}
+
+@SuppressLint("CoroutineCreationDuringComposition")
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+internal fun BizRootHomePage(
+    toTransfer: () -> Unit,
+    toNotification: () -> Unit,
+    toAccount: () -> Unit,
+    toApproval: () -> Unit,
+    toCreation: () -> Unit,
+    toLoan: () -> Unit,
+    toDeposit: () -> Unit,
+    toBizWebConfirmPin: () -> Unit,
+    // More
+    toRoles: () -> Unit,
+    toSecurityCenter: () -> Unit,
+    toDeviceManagement: () -> Unit,
+    toAboutUs: () -> Unit,
+    toScan: () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    val bizHomeVm = viewModel<BizHomeViewModel>()
+    val selectedIndex = remember { mutableIntStateOf(0) }
+    val pagerState = rememberPagerState(pageCount = { 5 })
+    val focusManager = LocalFocusManager.current
+    val context = LocalContext.current
+    val isScan = remember { mutableStateOf(false) }
+    val isLock = bizHomeVm.isLock.observeAsState(false)
+    val rect = bizHomeVm.rect.observeAsState(null)
+
+    // Get data
+    LaunchedEffect(Unit) {
+        focusManager.clearFocus()
+        bizHomeVm.getCompany()
+    }
+
+    ScreenLock(
+        rects = listOf(rect.value),
+        isLock = isLock.value,
+        modifier = Modifier,
+    ) {
+        BizUiWrapper(title = "Mobile Biz", ignoreTopBarPadding = true, topBar = {}, bottomBar = {
+            BizHomeBottomBar(
+                selectedIndex = selectedIndex.intValue,
+                enabledIndexes = listOf(0, 2, 4),
+                onClick = {
+                    selectedIndex.intValue = it
+                    scope.launch { pagerState.scrollToPage(it) }
+                    if (selectedIndex.intValue == 2) {
+                        isScan.value = true
+                    }
+                }
+            )
+        }) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(colorResource(R.color.biz_primary_color_6D029E))
+            ) {
+                HorizontalPager(pagerState, userScrollEnabled = false) { page ->
+                    when (page) {
+                        0 -> {
+                            BizHomePage(
+                                toTransfer = toTransfer,
+                                toNotification = toNotification,
+                                toAccount = toAccount,
+                                toApproval = toApproval,
+                                toCreation = toCreation,
+                                toLoan = toLoan,
+                                toDeposit = toDeposit,
+                                toBizWebConfirmPin = toBizWebConfirmPin
+                            )
+                        }
+
+                        1 -> {
+                            BizExchangeRatePage()
+                        }
+
+                        2 -> {
+                            if (isScan.value) {
+                                toScan()
+                            } else {
+                                BizHomePage(
+                                    toTransfer = toTransfer,
+                                    toNotification = toNotification,
+                                    toAccount = toAccount,
+                                    toApproval = toApproval,
+                                    toCreation = toCreation,
+                                    toLoan = toLoan,
+                                    toDeposit = toDeposit,
+                                    toBizWebConfirmPin = toBizWebConfirmPin
+                                )
+                                selectedIndex.intValue = 0
+                            }
+                        }
+
+                        3 -> {
+                            BizLocatorPage()
+                        }
+
+                        4 -> {
+                            BizMorePage(
+                                logOut = {
+                                    BizUserManager.disableSession()
+                                    bizHomeVm.isEyeOpen.value = false
+                                    scope.launch { pagerState.animateScrollToPage(0) }
+                                    selectedIndex.intValue = 0
+                                },
+                                toRoles = { BizUserManager.checkUserSession { toRoles.invoke() } },
+                                toSecurityCenter = { BizUserManager.checkUserSession { toSecurityCenter.invoke() } },
+                                toDeviceManagement = { BizUserManager.checkUserSession { toDeviceManagement.invoke() } },
+                                toAboutUs = { toAboutUs.invoke() }
+                            )
+                            selectedIndex.intValue = 4
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

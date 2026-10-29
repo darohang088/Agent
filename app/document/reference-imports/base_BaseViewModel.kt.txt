@@ -1,0 +1,39 @@
+package com.daro.agentapp.base
+
+import androidx.lifecycle.ViewModel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
+import kotlin.coroutines.CoroutineContext
+
+/**
+ * Base ViewModel of agent
+ */
+abstract class BaseViewModel : ViewModel(), CoroutineScope {
+    val TAG = "BizBaseViewModel"
+
+    override val coroutineContext: CoroutineContext
+        get() = Dispatchers.IO
+
+    override fun onCleared() {
+        coroutineContext.cancel()
+        super.onCleared()
+    }
+
+    /**
+     * Get Repo from factory
+     */
+    inline fun <reified T : BaseRepo> getRepo(): T {
+        return if (repos.getRepo(T::class.java.name) == null) {
+            repos.registerRepo(
+                T::class.java.name, T::class.java.constructors[0].newInstance() as T
+            ) as T
+        } else {
+            repos.getRepo(T::class.java.name) as T
+        }
+    }
+
+    companion object {
+        val repos = BaseRepo.BizRepoFactory.getInstance()
+    }
+}

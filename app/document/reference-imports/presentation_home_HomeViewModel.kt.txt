@@ -1,0 +1,253 @@
+package com.daro.agentapp.presentation.home
+
+import android.content.Context
+import android.graphics.RectF
+import android.util.Log
+import androidx.lifecycle.MutableLiveData
+import kh.com.princebank.biz.BuildConfig
+import kh.com.princebank.biz.base.BizBaseViewModel
+import kh.com.princebank.biz.data.BizAvailableBalance
+import kh.com.princebank.biz.data.BizCurrency
+import kh.com.princebank.biz.data.BizUserManager
+import kh.com.princebank.biz.repo.BizAccountRepo
+import kh.com.princebank.biz.repo.BizApprovalRepo
+import kh.com.princebank.biz.repo.BizAuthRepo
+import kh.com.princebank.biz.utils.VersionHelper
+import kh.com.princebank.biz.utils.hideLoading
+import kh.com.princebank.biz.utils.showErrorMessage
+import kh.com.princebank.biz.utils.showLoading
+import kh.com.princebank.biz.utils.string
+import kh.com.princebank.biz.utils.toBizMoney
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.launch
+
+class HomeViewModel : BizBaseViewModel() {
+    private val accountRepo = getRepo<BizAccountRepo>()
+    private val approvalRepo = getRepo<BizApprovalRepo>()
+    private val authRepo = getRepo<BizAuthRepo>()
+
+    val token = MutableLiveData(false)
+
+    val isLock = MutableLiveData(false)
+    val rect = MutableLiveData<RectF?>(null)
+
+    /**
+     * Force Update
+     */
+    val forceUpdateOptional = MutableLiveData(false)
+    val forceUpdate = MutableLiveData(false)
+    val urlForceUpdateLink = MutableLiveData("")
+
+    /**
+     * New device login
+     */
+    val newDeviceAuthStatus = MutableLiveData(false)
+    val newDeviceAuthCode = MutableLiveData("")
+
+    /**
+     * New authenticate key code
+     */
+    val newAuthenticateKeyCodeStatus = MutableLiveData(false)
+    val authenticateKeyCode = MutableLiveData("")
+
+    /**
+     * New resend bizWeb
+     */
+    val newResendBizWebStatus = MutableLiveData(false)
+    val newResendBizWebCode = MutableLiveData("")
+
+    val otp = MutableLiveData("")
+    val resendOtp = MutableLiveData("")
+
+    /**
+     * Accessible properties
+     */
+    val companyName = MutableLiveData("")
+    val isEyeOpen = MutableLiveData(false)
+    val availableBalance = MutableLiveData<BizAvailableBalance>(
+        BizAvailableBalance(
+            balanceUsd = "0.00",
+            balanceKhr = "0"
+        )
+    )
+    val pendingApprovalCount = MutableLiveData(0)
+
+    /**
+     * Get user info
+     */
+    fun getCompany() {
+        companyName.value = BizUserManager.getProfileInfo().name
+    }
+
+    // show Transfer Notification Web Token Dialog
+    val showTransferNotificationWebTokenDialog = MutableLiveData(false)
+
+    // show Resend BizWeb Token Dialog
+    val showResendBizWebTokenDialog = MutableLiveData(false)
+
+    /**
+     * Force Update
+     */
+    fun forceUpdate() {
+        launch {
+            authRepo.forceUpdate().collect {
+                if (it.status.isSuccess) {
+                     val requireVersion = it.data?.appVersion?.replace(".", "")?.toIntOrNull()
+                    if (requireVersion == null) return@collect
+
+                    val currentVersion = BuildConfig.VERSION_CODE
+                    if (currentVersion == null) return@collect
+
+                    if (currentVersion < requireVersion) {
+                        forceUpdate.postValue(true)
+                        urlForceUpdateLink.postValue(it.data.appUrl)
+                    }
+                } else {
+                    Log.d(TAG, "forceUpdate: ")
+//                    showErrorMessage(it.status)
+                }
+            }
+        }
+    }
+
+    /**
+     * Get total balance
+     */
+    fun getTotalAccountBalance(showBalance: Boolean = true) {
+        showLoading()
+        launch {
+            accountRepo.getTotalAccountBalance(BizUserManager.getProfileInfo().companyNo).collect {
+                hideLoading()
+                if (showBalance) {
+                    isEyeOpen.postValue(it.status.isSuccess)
+                } else {
+                    isEyeOpen.postValue(false)
+                }
+                if (it.status.isSuccess) {
+                    availableBalance.postValue(
+                        BizAvailableBalance(
+                            balanceUsd = it.data?.totalAvailableBalanceUsd.toBizMoney(BizCurrency.USD)
+                                .getAmountStr(),
+                            balanceKhr = it.data?.totalAvailableBalanceKhr.toBizMoney(BizCurrency.KHR)
+                                .getAmountStr()
+                        )
+                    )
+                    BizUserManager.saveUSDorKHR(it.data?.hasUsd ?: true, it.data?.hasKhr ?: true)
+                } else {
+                    showErrorMessage(it.status)
+                }
+            }
+        }
+    }
+
+    /**
+     * Get approval pending count
+     */
+    fun getApprovalPendingCount() {
+        launch {
+            approvalRepo.searchApprovalWaitingList().collect {
+                if (it.status.isSuccess) {
+                    pendingApprovalCount.postValue(it.data?.requestsList?.size ?: 0)
+                } else {
+                    showErrorMessage(it.status)
+                }
+            }
+        }
+    }
+
+    /**
+     * set new device login status
+     */
+    fun setNewDeviceLoginStatus(status: Boolean) {
+        newDeviceAuthStatus.value = status
+    }
+
+    /**
+     * set authenticate key code status
+     */
+    fun setNewAuthenticateKeyCodeStatus(status: Boolean) {
+        newAuthenticateKeyCodeStatus.value = status
+    }
+
+    /**
+     * set resend bizWeb status
+     */
+    fun setResendBizWebStatus(status: Boolean) {
+        newResendBizWebStatus.value = status
+    }
+
+    /**
+     * set new device auth code
+     */
+    fun setNewDeviceAuthCode(code: String) {
+        newDeviceAuthCode.value = code
+    }
+
+    /**
+     * set authenticate key code
+     */
+    fun setAuthenticateKeyCode(code: String) {
+        authenticateKeyCode.value = code
+    }
+
+    /**
+     * set resent bizWeb
+     */
+    fun setResendBizWebCode(sessionID: String) {
+        newResendBizWebCode.value = sessionID
+    }
+
+    /**
+     * Verify new device login
+     * @param pin : pin
+     */
+    fun verifyNewDeviceLogin(pin: String) = channelFlow {
+        authRepo.verifyNewDeviceLogin(
+            pin = pin,
+            approved = newDeviceAuthStatus.value!!,
+            deviceAuthCode = newDeviceAuthCode.value!!
+        ).collect {
+            if (it.status.isSuccess) {
+                send(it.status.isSuccess)
+            } else {
+                showErrorMessage(it.status)
+            }
+        }
+    }
+
+    /**
+     * Verify authenticate key code
+     * @param pin : pin
+     */
+    fun verifyTransferWeb(pin: String) = channelFlow {
+        authRepo.verifyTransferWeb(
+            pin = pin,
+            authenticateKey = authenticateKeyCode.value!!
+        ).collect {
+            if (it.status.isSuccess) {
+                otp.value = it.data?.otp
+                showTransferNotificationWebTokenDialog.postValue(true)
+                send(it.status.isSuccess)
+            } else {
+                showErrorMessage(it.status)
+            }
+        }
+    }
+
+    /**
+     * Resent Token BizWeb
+     */
+    fun otpResend() = channelFlow {
+        authRepo.otpResend(
+            sessionID = newResendBizWebCode.value!!
+        ).collect {
+            if (it.status.isSuccess) {
+                resendOtp.value = it.data?.otp
+                showResendBizWebTokenDialog.postValue(true)
+                send(it.status.isSuccess)
+            } else {
+                showErrorMessage(it.status)
+            }
+        }
+    }
+}

@@ -2,6 +2,8 @@
 
 Status: **MVVM foundation implemented following approval.**
 
+Current networking uses **Retrofit + Kotlin serialization + shared OkHttp**. Section 23 adds the current session, storage, environment, UI-state, and CI foundation. Earlier sections record implementation history and are superseded where noted.
+
 This document describes the approved architecture and migration flow. The initial implementation preserves the existing greeting and environment flavors. Feature-specific capabilities below remain conditional on actual product requirements.
 
 ## 1. Current project
@@ -10,7 +12,7 @@ This document describes the approved architecture and migration flow. The initia
 - Kotlin, Jetpack Compose, and Material 3.
 - Thin `MainActivity`, application container, greeting repository, ViewModel, route, stateless screen, and existing theme files.
 - Minimum Android API 23 (Android 6.0); compile and target SDK are configured as API 37.
-- No navigation graph, database, or network client is needed for the current greeting.
+- Greeting UI remains the launcher. Registration networking is implemented through `AuthRepository`, with a registration form and Navigation Compose graph. No database has been added.
 
 The app's actual features and backend requirements have not been defined. Names such as `Item` below are explanatory placeholders, not proposed product features.
 
@@ -263,7 +265,7 @@ com/daro/agentapp/
 
 `AgentApplication` owns the container; its factory creates a screen-scoped ViewModel. The repository emits the existing built-in greeting. The ViewModel maps it into read-only state, shared while subscribed. The route collects state with lifecycle awareness, and the screen renders loading or content. Greeting text uses an Android string resource.
 
-The built-in greeting has no failing operations, writes, search, or empty-list semantics, so error/retry/submission flows and their tests are deferred until a feature requires them. No fake backend, database, empty packages, or unnecessary use case has been added. `core`, data sources, mappers, navigation, and use cases in the proposed tree are extension points rather than created directories.
+The built-in greeting has no failing operations, writes, search, or empty-list semantics, so error/retry/submission flows and their tests are deferred until a feature requires them. No fake backend, database, empty packages, or unnecessary use case has been added. Subsequent work adds `core` utilities/results and registration data sources/mappers (sections 15–16). Navigation was added for registration (section 17); use cases remain an extension point.
 
 All four flavors (`staging`, `uat`, `preProd`, `prod`) and the configured minimum SDK remain unchanged. ViewModel tests cover initial loading, the existing greeting, and repository updates. Instrumentation tests verify application wiring, visible greeting content, and activity recreation on the connected Android 15 (API 35) emulator.
 
@@ -292,7 +294,7 @@ app/src/
 
 Each flavor defines `R.string.api_base_url`, currently `http://43.224.34.135:3003/` for all four environments because only one URL was supplied. Edit each environment's `config.xml` independently when separate servers are available. Android selects the resource for the active build variant; no runtime environment switch is needed.
 
-This adds configuration only; no API client or requests are implemented. The supplied URL uses HTTP. When networking is implemented, add Internet permission and an appropriately scoped cleartext policy (or use HTTPS) because the current target blocks cleartext by default.
+The registration implementation in section 16 consumes this configuration, adds Internet permission, and permits HTTP for the supplied server. HTTPS is still needed for encrypted transport.
 
 ### Environment image and media resources
 
@@ -312,3 +314,316 @@ res/
 ```
 
 Empty resource directories contain `.gitkeep` files so Git retains them. Place shared images in `src/main/res`; place environment-specific images in the matching flavor's `res`. A flavor resource with the same name and configuration overrides the shared resource for that variant. No image assets were duplicated or changed.
+
+## 15. Root detection utility
+
+`core/utils/RootDetection.kt` provides suspend functions `isDeviceRooted()` and `check()`. Call from a coroutine (for example `viewModelScope.launch`); filesystem probes run on `Dispatchers.IO`. `check()` returns detected paths, test-key status, and paths denied by a `SecurityException`.
+
+```kotlin
+viewModelScope.launch {
+    val result = RootDetection.check()
+    // Update the feature's UI state from result.isRootSuspected.
+}
+```
+
+The utility checks known su/Magisk paths without executing `su`, requesting privileges, adding dependencies, or blocking the app. Test-key firmware alone does not count as root. A false result means no configured artifact was observed, not that the device is trusted; hidden files, SELinux, and root-hiding tools can defeat these checks. File.exists can return false for inaccessible files without throwing, so inaccessiblePaths is not a complete visibility report. App-blocking policy and server attestation are not implemented.
+
+## 16. Registration endpoint
+
+Implemented `POST /api/v1/auth/register` with the supplied JSON request and success envelope. The initial direct OkHttp implementation was migrated to Retrofit in section 22. `AppContainer.authRepository` exposes `AuthRepository.register(RegisterRequest): AppResult<AuthSession>` to feature ViewModels. The application reads the active flavor's `api_base_url` resource when constructing the container.
+
+### Data flow
+
+```text
+ViewModel coroutine → AuthRepository → DefaultAuthRepository
+    → AuthApi → OkHttp POST → response DTO → domain AuthSession
+```
+
+- Domain models: `RegisterRequest`, `AuthSession`, and `AuthUser`.
+- Data DTOs mirror all supplied field names, including `dateBirth` and `interested`.
+- Kotlin serialization requires complete session fields, tolerates extra response fields, and keeps DTOs behind the data layer. JSON processing runs on the Default dispatcher; HTTP uses asynchronous OkHttp calls.
+- Request coordinates must be finite and within latitude/longitude bounds. Other field validation remains authoritative on the backend until its rules are provided. Date format is `yyyy-MM-dd`; `gender`, role, and provider remain strings because the full allowed-value contracts were not supplied.
+- `AppError` represents connection, timeout, TLS, invalid response, business rejection, invalid coordinates, and HTTP errors with a status code. Raw error bodies and server messages are not exposed to UI or retained in errors.
+- Connect timeout: 15 seconds; read/write: 30 seconds; total call: 45 seconds.
+- No automatic connection retries or redirect following. The registration request body is one-shot so follow-up retries cannot replay it. A timeout can mean the backend created an account even though the client received no result; do not automatically resubmit.
+- Coroutine cancellation cancels the call and propagates as cancellation. Response bodies are always closed.
+- Debug-only sanitized JSON logging is described in section 19. Request/session/user objects redact their default string representation. Callers must also avoid logging individual sensitive fields.
+- Tokens are returned in memory only. Secure persistence, login, refresh, and logout remain unimplemented. The registration form/ViewModel is described in section 17.
+
+### Calling from a feature ViewModel
+
+Inject `AuthRepository` through its ViewModel factory, then call from a lifecycle-owned coroutine:
+
+```kotlin
+viewModelScope.launch {
+    when (val result = authRepository.register(request)) {
+        is AppResult.Success -> {
+            val session = result.value
+            // Hand off to the session owner; never log or put tokens in saved UI state.
+        }
+        is AppResult.Failure -> {
+            // Map result.error into a localized, feature-specific UI state.
+        }
+    }
+}
+```
+
+### HTTP configuration
+
+Internet permission and Network Security Configuration were added. Cleartext is denied by default with an exception for `43.224.34.135`. Android 6.0 does not support Network Security Configuration, so the manifest permits cleartext for compatibility and the shared client additionally enforces the same host restriction. Redirects are disabled. Normal HTTPS certificate validation remains enabled.
+
+All flavors still use the one supplied HTTP URL. Passwords and tokens sent through this server are **not encrypted in transit**. Replace environment URLs with an HTTPS endpoint and remove the HTTP exception when the backend supports TLS.
+
+### Verification
+
+All four debug APKs assembled. Staging unit tests passed (18 tests total, including 11 registration/network tests). Registration tests use MockWebServer and synthetic credentials: request shape, successful mapping, HTTP status failures, API rejection, malformed/incomplete sessions, coordinate validation, timeouts, connection failures, redirects, non-replay on 503, cancellation, and timeout configuration. No account was created on the real backend. Optimized `:app:assembleStagingRelease` and release vital lint passed. R8 emitted missing optional/platform type warnings (including Conscrypt and AndroidX); no blanket keep or suppression rules were added. Release runtime behavior was not exercised.
+
+## 17. Home-to-registration flow
+
+The home screen has a **Register** button. `navigation/AppNavHost.kt` owns a Navigation Compose graph initially with `home` and `register` destinations; section 21 introduces `welcome` and a separate Home menu. Navigation controllers remain in the UI layer, and ViewModels are scoped to their back-stack entries. The registration screen has an explicit Back button and supports Android system Back. Navigation state survives activity recreation.
+
+`presentation/register/` contains `RegisterRoute`, `RegisterScreen`, `RegisterViewModel`, and immutable UI/form state. `AppContainer` supplies the registration ViewModel factory and the existing `AuthRepository`.
+
+The scrollable form includes all supplied endpoint fields. It masks the password, validates required fields, phone shape, exact calendar date format, and coordinate bounds, and splits comma-separated interests into a list. Backend validation remains authoritative; no unsupported gender enum or password-length rule was invented. Coordinates are entered manually; the app does not request location permission.
+
+Create account submits only after user action. While submitting, fields and the submit button are disabled and the ViewModel independently prevents duplicate submissions. Typed errors become localized messages; network/timeout errors explain that the account may already have been created. Successful registration clears the form and shows confirmation with a Return to home button. It does not automatically log in or persist the returned tokens.
+
+Passwords and form values live only in ViewModel memory and are not put in navigation arguments or saved instance state. Activity recreation retains the destination-scoped ViewModel. Process death can restore the destination but starts a fresh form; registration is never automatically submitted on restoration. Leaving the destination clears its ViewModel and cancels screen-owned work. Canceling a call does not undo any account already created by the backend.
+
+Verification includes unit tests for validation, duplicate-submit protection, input locking, request mapping, success cleanup, and error handling. Emulator tests cover opening registration, destination restoration after activity recreation, Back navigation, and validation without making a real registration request.
+
+Registration UI verification passed: all four debug builds, 23 staging unit tests, and 4 instrumentation tests on Android 15 / API 35. No live registration request was sent.
+
+## 18. Internet connection state
+
+`core/network/InternetConnectionMonitor` is available through `AppContainer.internetConnectionMonitor` and uses application context only.
+
+- `currentState()` returns `Available`, `Unavailable`, or `Unknown`.
+- `isConnected()` is a one-time Boolean check.
+- `observe()` emits connectivity changes as a cold `Flow`, with distinct/conflated values and listener cleanup when collection stops.
+- Available requires both INTERNET and VALIDATED capabilities. Wi-Fi or cellular connection alone is insufficient; captive portals/unvalidated networks report Unavailable. Unknown is used while default-network capabilities are not yet known.
+- API 24+ uses a default-network callback and capability-change events. Losing an old network after switching does not mark the new default offline.
+- API 23 uses a dynamically registered connectivity broadcast and fresh default-network snapshots. No polling, ping server, extra dependency, or runtime permission dialog is required.
+- `ACCESS_NETWORK_STATE` is declared in the manifest.
+
+Inject the monitor into a ViewModel and collect only while needed:
+
+```kotlin
+val connectionState = internetConnectionMonitor.observe().stateIn(
+    viewModelScope,
+    SharingStarted.WhileSubscribed(5_000),
+    InternetConnectionState.Unknown,
+)
+```
+
+The route can use `collectAsStateWithLifecycle()`. The monitor does not automatically block registration or retry requests. Android's validation indicates general internet connectivity, not reachability of this specific backend; API calls must still handle their own failures. Device tests check the snapshot and collection/cancellation without changing the device's connectivity. API 23 fallback and live Wi-Fi/mobile handoff require separate device testing.
+
+Connectivity verification passed: staging debug build, 23 unit tests, and 6 instrumentation tests on Android 15 / API 35. Network toggling, captive portal behavior, and the API 23 fallback were not exercised.
+
+## 19. Pretty JSON network logs (debug only)
+
+All debug flavors install `PrettyJsonLoggingInterceptor` through `src/debug/.../NetworkLogging.kt`. Release flavors use a separate implementation in `src/release` returning an empty interceptor list; neither the logger nor its formatter is compiled into release source sets. Section 22 describes the Retrofit migration.
+
+In Android Studio Logcat, select the debug app and filter with `tag:AgentNetwork` at Debug level. Tap Create account to see a POST request, response HTTP status, elapsed milliseconds, and indented JSON. Correlation IDs pair entries when requests overlap. Failures show safe typed categories, never exception messages.
+
+The logger preserves JSON structure and a small allowlist of non-sensitive values (`success`, `expiresIn`, known token types, roles, providers, and genders). Passwords, tokens, phone numbers, names, birth dates, coordinates, interests, server messages, IDs, and unknown scalar values are fully redacted. Headers, URL credentials, and query parameters are not printed. Do not expand the allowlist to include credentials or personal data.
+
+Malformed/non-JSON bodies are omitted without a raw fallback. Body previews are bounded to approximately 16 KB, nesting output is bounded, and long lines are split for Logcat. Debug response previews use `peekBody` so the actual response remains available to parsing. Log sink failures do not change the API result. Release code never peeks at a body for logging. The interceptor applies automatically to all services created through the shared Retrofit provider in AppContainer.
+
+Network logs do not encrypt the existing HTTP connection and do not change token storage, retry policy, or TLS verification. Debug tests cover redaction, pretty formatting, missing/raw bodies, size limits, response parsing after logging, HTTP error logs, and sink failures.
+
+Logging verification passed: staging debug and optimized staging release builds, release vital lint, and 27 unit tests (including 4 logger tests). Existing optional/platform R8 warnings remain; no suppression rules were added. No request was sent to the real registration server.
+
+## 20. Centralized destinations
+
+`navigation/Destination.kt` defines the approved sealed `Destination(val route: String)` class, with `Home` and `Register` objects. `AppNavHost` uses `Destination.Home.route` and `Destination.Register.route` for its start destination, screen registration, and navigation calls. Route names are declared once. This is string-based navigation organized through destination objects; it does not introduce serialized route arguments or additional graph abstractions. Existing Back behavior, screen-scoped ViewModels, and single-top registration navigation are preserved.
+
+## 21. Home menu and feature destinations
+
+The initial greeting screen is now the `Welcome` destination (`welcome`) and has separate **Home** and **Register** buttons. Home opens the `Home` destination (`home`), which lists Transfer, Notifications, Account, Approval, Creation, Loan, Deposit, Web PIN confirmation, Roles, Security center, Device management, About us, and Scan.
+
+`navigation/HomeGraph.kt` groups the Home screen and all 13 feature destinations, with 300 ms Home fade transitions. It maps presentation menu identifiers to centralized `Destination` objects. Navigation stays outside composables; the Home screen receives item-click and Back callbacks. Single-top navigation avoids duplicate top entries. The function registers destinations in the root graph rather than creating a nested graph.
+
+Each menu item opens its own destination with the matching title, a coming-soon message, and Back. These are explicit placeholder screens only: no transfer, payment, PIN capture, scanner/camera, or other business operations have been added. One reusable placeholder composable avoids duplicating 13 empty screens. No ViewModel or data layer is needed for the static menu.
+
+Back from a feature returns to Home; Back from Home returns to Welcome. Register remains directly accessible from Welcome. Tests exercise every menu item, returning to the menu, destination restoration after activity recreation, and system Back. No real backend requests or financial operations are performed by these tests.
+
+Home-menu verification passed: staging debug build and 8 instrumentation tests on Android 15 / API 35, including all 13 menu routes and Back navigation.
+
+## 22. Retrofit migration and scalable repository setup
+
+### Current architecture
+
+```text
+Feature ViewModel (viewModelScope)
+    → domain repository interface
+    → data repository implementation : BaseRepo
+    → Retrofit API interface (suspend, Response<DTO>)
+    → shared OkHttp connection pool and policies
+    → server
+```
+
+- `RetrofitProvider` centralizes Kotlin serialization, common headers, optional build-type logging interceptors, and a one-shot policy for mutating requests.
+- `AppContainer` lazily creates one transport client and Retrofit instance, then injects generated API services into repositories. The derived configured client shares the original client's connection pool and dispatcher.
+- `AuthApi` is an interface with `@POST("api/v1/auth/register")` and `@Body`. It returns `Response<RegisterResponseDto>`; serialization and suspend cancellation are handled by Retrofit.
+- `BaseRepo.apiCall` maps HTTP statuses, connection/TLS/timeouts, missing successful bodies, and decoding errors into existing `AppResult`/`AppError`. Cancellation is rethrown; unexpected programming failures are not silently classified as connectivity errors.
+- Feature repositories retain validation, API-envelope business rejection handling, and DTO-to-domain mapping. Domain interfaces and UI never depend on Retrofit.
+- The helper expects a response body; introduce an explicit no-content operation contract when an actual endpoint requires HTTP 204 rather than weakening registration's required-body check.
+- There are no repository-owned scopes, reflected constructors, gRPC channels, per-repository executors, or repository registries. Optional `BaseViewModel` is a plain ViewModel parent; use constructor injection and viewModelScope.
+- Timeouts, disabled redirects and connection retries, and the mutation one-shot policy remain in place. Registration is not replayed automatically even on 503 with Retry-After: 0.
+
+### Grouped debug logs
+
+Every `stagingDebug`, `uatDebug`, `preProdDebug`, and `prodDebug` variant installs the debug-only interceptor. Logcat filter: `tag:AgentNetwork`. A grouped record contains:
+
+```text
+================ HTTP [correlation-id] ================
+service = AuthApi
+method = POST register
+server = http://43.224.34.135:3003
+endpoint = api/v1/auth/register
+request headers = { sanitized headers }
+request =
+{ pretty, redacted JSON }
+status = 201
+duration = ...ms
+response headers = { sanitized headers }
+response =
+{ pretty, redacted JSON }
+======================================================
+```
+
+All release flavors use an empty logging-interceptor list. Debug formatter/interceptor classes are absent from release source sets. Credentials, tokens, personal data, unknown JSON scalars, cookies, authorization headers, and unknown header values are redacted. Only narrowly allowlisted metadata is visible. Query values, URL credentials, and expanded dynamic path arguments are not logged; endpoint templates come from Retrofit annotations. JSON previews are bounded and responses remain available to the converter. One-shot/duplex/unknown-size/non-JSON request bodies are not inspected. A record appears after response headers/body preview or a connection failure; its timing is not a separate full download metric. Body-read failures after headers can still surface only through repository errors. Logs do not encrypt HTTP.
+
+### Adding another feature
+
+1. Define its domain models and repository interface.
+2. Add DTOs and a Retrofit service interface under `data/remote`.
+3. Create a data repository extending `BaseRepo`; use `apiCall { service.operation(...) }` and map to domain models.
+4. Add lazy service/repository bindings to AppContainer using the existing Retrofit instance; do not create another client inside the repository.
+5. Inject the repository through a ViewModel factory and expose immutable state.
+6. Add mock-server behavior tests. Keep authentication headers/refresh coordination in a future session-aware interceptor once their contracts exist. Registration remains public and sends no token automatically.
+
+### Build-blocking imported code
+
+Imported banking code had references to unavailable services/UI classes and reflected repository factories. Original copies are preserved under `app/document/reference-imports/` before adaptation. Home remains the existing static menu with coming-soon destinations; no banking functionality is simulated. The registered AgentApplication retains the dependency container and language setup. AgentApp is a deprecated compatibility Application subclass. Encrypted preferences use an explicit AndroidX import alias and idempotent lazy initialization; no real tokens are persisted by registration. DeviceUtils takes application context explicitly and uses an app-install UUID when no stored identifier exists. Future token persistence must also define backup exclusions, expiry, refresh, and logout cleanup.
+
+### Retrofit migration validation
+
+- All four debug APKs built successfully.
+- 32 unit tests passed for each debug flavor (128 executions total).
+- Production optimized release build and vital lint passed. Existing optional/platform R8 warnings remain; no blanket keep or suppression rules were introduced.
+- 8 instrumentation tests passed on Android 15 / API 35, covering navigation, registration validation, recreation, and connectivity snapshots.
+- APK DEX inspection found the `AgentNetwork` tag in all four debug APKs and absent from the freshly built production release APK. Release source sets contain neither logging interceptor nor formatter.
+- Tests use synthetic requests against local mock servers; no real account was registered.
+- Minimum-SDK runtime testing, optimized release runtime testing, backend HTTPS, session persistence/refresh, and unfinished business features remain outside this change.
+
+## 23. Mobile foundation before final UI/backend delivery
+
+### Session lifecycle
+
+`domain/session/SessionRepository` exposes `Loading`, `SignedOut`, and `SignedIn` states without credentials. AppContainer owns the application coroutine scope and starts restoration when it is created. Feature ViewModels can observe this repository; tokens never belong in UI state, navigation arguments, or SavedStateHandle.
+
+- `establish(AuthSession)` explicitly accepts an authenticated backend response, persists it, and then publishes SignedIn. It requires a positive, non-overflowing expiresIn and a Bearer token type. This operation is not called automatically by registration.
+- `restore()` restores valid stored credentials once, clears expired/unreadable state, and never resurrects a session after logout in the same repository instance.
+- The expiry timer and `accessToken()` prevent use after local expiry. Without a refresh API contract, expiration signs out and erases stored credentials rather than silently refreshing.
+- `logout()` immediately removes in-memory credentials, destroys stored session encryption material, and attempts all registered `SessionDataCleaner` hooks. Storage/cache cleanup failures are returned as typed errors while the UI remains signed out. Account switches also clear the previous account's registered caches before publishing the next session.
+- There are no user caches in the application yet; future feature-owned caches must be bound as cleaners in AppContainer. Server revocation, refresh coordination, protected endpoints, and authentication navigation gates require actual backend/feature contracts.
+
+### Keystore-backed session storage
+
+`data/local/session/KeystoreSessionStore` uses the platform Android Keystore and AES-GCM with a fresh IV for each write. Only ciphertext is written, through AtomicFile, under `noBackupFilesDir/session/session.enc`. Restoring corrupt ciphertext or losing the key fails closed. Logout destroys the key before deleting ciphertext. Reads are size-bounded and disk/crypto work runs on the IO dispatcher. No password is stored.
+
+The requested security-crypto 1.0.0 dependency remains for the existing device-preferences helper. New session tokens do not depend on that deprecated wrapper. The legacy `biz_shared_prefs.xml` file is explicitly excluded from old-style backup, cloud backup, and device transfer. Session storage uses noBackupFilesDir, which is excluded from backup/transfer by Android.
+
+### Environment safeguards
+
+`EnvironmentConfig` requires a known flavor, explicit base URL, no URL credentials/query/fragment, and a trailing slash. Every release requires HTTPS. Unknown/missing/invalid configuration returns AppError.Configuration through an unconfigured repository; it never falls back to production or the development server.
+
+Production is configured to the URL supplied during this implementation: `https://43.224.34.135:3003/`. Production Debug explicitly retains the development HTTP address in `src/prodDebug/res/values/config.xml`; this override is not packaged in Production Release. The other debug flavors retain their existing development URL. Their release configuration must also be changed to valid HTTPS before making API calls.
+
+Main/release manifests and network security configuration deny cleartext. Debug source-set overrides allow only the supplied development host, and the shared OkHttp client enforces the debug-only exception on API 23 as well. No permissive TLS verifier, trust-all certificate manager, or HTTP fallback was added.
+
+**Backend action required:** both a curl TLS probe and a modern Python TLS handshake failed against the supplied HTTPS URL; Python reported WRONG_VERSION_NUMBER. This commonly indicates that the port serves HTTP. The mobile configuration is HTTPS-only for release, but the backend must enable valid TLS before production registration can work. No account credentials were sent during verification. Distinct physical environment servers/data isolation must be supplied by the backend; resource folders alone do not provide server-side isolation.
+
+### UI and designer handoff
+
+`ui/state/LoadState` provides Loading, Empty, Content, and Error states for content screens. `LoadStateContent` renders them with an optional explicit retry callback. Forms retain feature-specific input and submission state. `ui/common/ErrorMessage` centralizes localized safe messages and is used by registration. Registration does not automatically retry consequential writes. A Compose registration preview is available without a server.
+
+For a new feature, agree on these items before writing its backend implementation:
+
+| Contract | Define |
+| --- | --- |
+| Screen purpose | Entry points, actions, completion and Back behavior |
+| Domain data | Models and stable identifiers independent of DTOs |
+| UI states | Loading/content/empty/error, validation, submission and confirmation |
+| API | Paths, methods, required fields, enums, success/error envelope, pagination |
+| Authentication | Public/protected access, session expiration and role checks enforced by server |
+| Reliability | Idempotency, unknown outcomes, retry safety, offline/cache policy |
+| Persistence | Restorable IDs versus credentials, retention and logout cleanup |
+| Acceptance | Unit/mock-server cases, navigation/lifecycle cases, final UI/accessibility criteria |
+
+Use constructor-injected test fakes while the backend is unavailable. A reusable FakeAuthRepository lives only in the unit-test source set and is used by registration tests. Do not add fake authentication, payments, or banking data to release flows. Designer delivery should mostly change stateless Compose screens/components/theme; backend delivery should mostly change DTOs, API services, mappers, and data repositories.
+
+### CI and local checks
+
+`.github/workflows/android-ci.yml` configures builds, unit tests, lint for all four debug flavors, production release verification, API 23/35 device jobs, and redacted Gitleaks scanning. Actions are pinned to resolved commit SHAs and default to read-only repository permissions. `.github/dependabot.yml` configures weekly Gradle/action update PRs. Dependabot update configuration is not evidence that remote vulnerability alerts or branch protection have been enabled.
+
+Local policy checks:
+
+```sh
+python3 scripts/check_foundation.py
+./gradlew :app:assembleDebug :app:testStagingDebugUnitTest :app:testUatDebugUnitTest :app:testPreProdDebugUnitTest :app:testProdDebugUnitTest :app:lintStagingDebug
+./gradlew :app:assembleProdRelease :app:connectedStagingDebugAndroidTest
+python3 scripts/verify_release_apk.py app/build/outputs/apk/prod/release/app-prod-release-unsigned.apk
+```
+
+The APK check requires Android SDK apkanalyzer on PATH (or `--apkanalyzer /absolute/path/to/apkanalyzer`). It verifies non-debuggability, the cleartext manifest flag, and absence of the debug network log tag. These checks are not a penetration test or a backend certificate audit. CI definitions have been syntax-checked locally; GitHub execution and secret scanning occur only after the changes are committed/pushed and Actions is enabled. Gitleaks licensing must be reviewed if moving this personal repository into an organization.
+
+### Cleanup and validation boundaries
+
+Unused AgentApp Application compatibility, BaseViewModel, HomeViewModel, and RootHomePage shells were removed from runtime source. Pre-cleanup copies remain under document/reference-imports. The registered application is AgentApplication; `app/AgentApp.kt` remains the root Compose UI. User-added diagram images and unrelated staged changes were preserved.
+
+Verification passed: 50 unit tests per debug flavor (200 executions), 14 instrumentation tests on API 35, all debug builds, staging lint, and production optimized release/vital lint. Keystore tests use isolated test aliases/files, verify ciphertext contains no synthetic token strings, confirm restore across store instances and unique ciphertext on repeated writes, and reject tampering. Session unit tests cover restore, expiration, write failure, cleanup, account switching, invalid lifetime handling, cancellation after a partial write, and logout racing startup restoration. A fresh ViewModel test verifies no saved password or automatic submission; activity recreation is covered by existing navigation tests. A real OS process-kill/restore and API 23 emulator run were not executed locally; API 23 is configured in CI. Existing optional/platform R8 warnings remain without blanket suppressions.
+
+Final production APK inspection passed: non-debuggable, cleartext disabled, and AgentNetwork log tag absent. GitHub workflow YAML and local policy scripts passed syntax/configuration checks. CI has not yet been executed on GitHub.
+
+## 24. Login endpoint
+
+Added `POST /api/v1/auth/login` to the shared Retrofit AuthApi. `AuthRepository.login(LoginRequest)` returns `AppResult<AuthSession>`. Request JSON contains only phoneNumber and password; the password is sent exactly as supplied, without trimming. Empty phone numbers/passwords are rejected locally without a network call; further credential rules remain authoritative on the backend.
+
+Login and registration now share `AuthResponseDto`, session/user DTOs, and repository response validation/mapping. Typed HTTP, connection, timeout, TLS, decoding, cancellation, and no-automatic-replay policies are reused. Login is public and no bearer token is attached automatically. The existing grouped debug-only logger covers login and redacts its credentials and response tokens.
+
+This change adds the endpoint/data contract only, not a login screen. A future login ViewModel can call `authRepository.login(request)` and then explicitly call `sessionRepository.establish(result.value)` on success. Persisting a session requires a positive expiresIn; the zero value in the supplied API example is decoded faithfully but is not replaced with an invented lifetime and cannot establish a persistent session. No session is stored automatically by the repository.
+
+Tests use synthetic credentials and a local mock server. They cover the exact request/response shape, raw password preservation, business/HTTP rejection, invalid data, timeout, cancellation, retry prevention, missing configuration, zero expiry, and debug redaction. No real login request or credentials were sent to the backend.
+
+Login validation passed: all four debug APKs, 61 unit tests per debug flavor (244 executions), and the optimized production release/vital lint. Existing optional/platform R8 warnings remain; no suppression rules were added. Tests used a local mock server; live login and a login UI were not exercised.
+
+## 25. Login button, form, and session establishment
+
+Welcome now shows Home, Register, and **Login**, with Login directly below Register. The greeting screen scrolls when needed on small displays. Destination.Login and LoginRoute are registered in AppNavHost; Back returns to Welcome and the destination survives activity recreation.
+
+`presentation/login/` contains a stateless LoginScreen, lifecycle-aware route, immutable/redacted LoginUiState, and constructor-injected LoginViewModel. AppContainer supplies the factory. Phone and password are required, passwords are masked, password values are not trimmed, and phone input is trimmed at the UI boundary. The form locks while submitting, prevents duplicate requests, and maps rejected/401 login results to a safe localized credential message. Other errors use the shared error component. New labels/messages are available in English and Khmer.
+
+On a successful API result the ViewModel explicitly calls SessionRepository.establish. Only successful secure persistence publishes the signed-in UI state. Credentials are cleared, and the route navigates to Home while popping Login so Back does not reopen a completed login. Session persistence failure keeps the user on Login and clears the password. A positive backend expiresIn is required by the existing session policy; zero expiry is not silently replaced. Login does not automatically retry or run on restoration. All credentials stay out of navigation arguments and saved state. Clearing the screen owner cancels in-flight login work.
+
+Registration behavior is unchanged: it shows confirmation without automatically establishing a session. No real account login was performed during development tests.
+
+Login UI validation passed: all four debug builds, 68 unit tests per debug flavor (272 executions), 16 device tests on API 35, staging lint, and the optimized production release/vital lint. English/Khmer keys and formatting placeholders match (57 strings). Navigation tests submit only empty forms, and ViewModel tests use fakes; no real login credentials were sent.
+
+## 26. Explicit raw response JSON inspection in debug
+
+`core/utils/PrettyJson.kt` adds `toPrettyJson()` for AuthSession, JsonElement, JSON strings, and @Serializable models. AuthSession mapping emits all actual domain response data values, including nested user fields, without changing its redacted default toString(). The server envelope's success/message/timestamp are not part of the domain AuthSession returned to the ViewModel.
+
+Successful login now uses:
+
+```kotlin
+DebugJsonLog.d("ResponseData==>") { result.value.toPrettyJson() }
+```
+
+Filter Logcat with `tag:ResponseData` to inspect this record. This is an explicit raw response inspection path requested for development: it includes access/refresh tokens and phone numbers. Do not share these logs or route them into analytics/crash reporting. Passwords are not included in AuthSession. The ordinary AgentNetwork interceptor continues redacting sensitive data.
+
+DebugJsonLog's debug implementation formats and emits the JSON. The release implementation is an inline no-op and does not evaluate the formatting lambda. Use this helper rather than an unconditional Log.d call to preserve the debug-only boundary across all flavors. Formatting and sink errors do not change the login outcome. Tests use synthetic values only; no real token values were read from the device or backend.
+
+Pretty-JSON verification passed: all four debug builds, 72 unit tests per debug flavor (288 executions), and production optimized release/vital lint. Release APK inspection confirmed both AgentNetwork and ResponseData==> log tags are absent. No real response values were fetched or printed during these checks.

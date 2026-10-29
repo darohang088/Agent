@@ -8,8 +8,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 
 @Composable
-fun GreetingRoute(factory: ViewModelProvider.Factory, modifier: Modifier = Modifier) {
+fun GreetingRoute(factory: ViewModelProvider.Factory, onRegister: () -> Unit, onHome: () -> Unit, onLogin: () -> Unit, modifier: Modifier = Modifier) {
     val viewModel: GreetingViewModel = viewModel(factory = factory)
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    GreetingScreen(state = state, modifier = modifier)
+    GreetingScreen(state = state, onRegister = onRegister, onHome = onHome, onLogin = onLogin, modifier = modifier)
 }

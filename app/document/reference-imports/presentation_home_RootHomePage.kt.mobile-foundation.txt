@@ -1,0 +1,9 @@
+package com.daro.agentapp.presentation.home
+
+import androidx.compose.runtime.Composable
+
+/** Compatibility entry point for the adapted Home menu. */
+@Composable
+internal fun RootHomePage(onItemClick: (HomeMenuItem) -> Unit, onBack: () -> Unit) {
+    HomeScreen(onItemClick = onItemClick, onBack = onBack)
+}

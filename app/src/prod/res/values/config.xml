@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="api_base_url" translatable="false">http://43.224.34.135:3003/</string>
+    <string name="api_base_url" translatable="false">https://43.224.34.135:3003/</string>
 </resources>

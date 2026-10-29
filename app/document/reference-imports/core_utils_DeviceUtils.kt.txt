@@ -1,0 +1,55 @@
+
+import android.annotation.SuppressLint
+import android.os.Build
+import android.provider.Settings
+import androidx.core.content.edit
+
+object DeviceUtils {
+
+    /**
+     * Get device info
+     */
+    fun getDeviceInfo(): DeviceInfo {
+        val deviceModel = Build.MODEL
+        val deviceBrand = Build.MANUFACTURER
+        val deviceName = Build.DEVICE
+        val deviceOperationSystem = "Android ${Build.VERSION.RELEASE}"
+
+        val info = DeviceInfo(
+            deviceModel = deviceModel,
+            deviceBrand = deviceBrand,
+            softwareId = getSoftwareId(),
+            deviceName = deviceName,
+            deviceOperationSystem = deviceOperationSystem
+        )
+        return info
+    }
+
+    @SuppressLint("HardwareIds")
+    private fun getSoftwareId(): String {
+        val context = BankApp.context
+        var softwareId = BizEncryptedSharedPreferences.getInstance().getString("software_id", "")
+        if (softwareId.isNullOrEmpty()) {
+            /**
+             * This will change when the device is update or factory reset,
+             * That's why we use SharedPreferences to store
+             */
+            softwareId = Settings.Secure.getString(
+                context.contentResolver,
+                Settings.Secure.ANDROID_ID
+            )
+            BizEncryptedSharedPreferences.getInstance().edit {
+                putString("software_id", softwareId)
+            }
+        }
+        return softwareId ?: throw Exception("BizDeviceUtils: Cannot get software id")
+    }
+}
+
+data class DeviceInfo(
+    val deviceName: String,
+    val deviceBrand: String,
+    val deviceModel: String,
+    val softwareId: String,
+    val deviceOperationSystem: String
+)
